@@ -71,7 +71,7 @@ jobs:
           name: Attach Dist to Workspace
           at: ~/
       - run:
-          name: Install AWS CLI
+          name: Installing deployment dependencies
           command: |
             apk --no-cache add py-pip
             pip install awscli
@@ -88,4 +88,10 @@ jobs:
       - run:
           name: Deploy to image to ECR
           command: |
-            docker build -t dockerimg:latest .
+            docker build -t nimiapp:latest .
+            
+            if [ "${CIRCLE_BRANCH}" == "dev" ]; then
+              $(aws ecr get-login --region ap-south-1 --no-include-email)
+              docker tag nimiapp:latest 849651916005.dkr.ecr.ap-south-1.amazonaws.com/nimiapp-dev:${CIRCLE_SHA1}
+              docker push 849651916005.dkr.ecr.ap-south-1.amazonaws.com/nimiapp-dev:${CIRCLE_SHA1}
+            fi
