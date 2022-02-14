@@ -1,21 +1,88 @@
-# This config is equivalent to both the '.circleci/extended/orb-free.yml' and the base '.circleci/config.yml'
 version: 2.1
-
-# Orbs are reusable packages of CircleCI configuration that you may share across projects, enabling you to create encapsulated, parameterized commands, jobs, and executors that can be used across multiple projects.
-# See: https://circleci.com/docs/2.0/orb-intro/
 orbs:
-  node: circleci/node@4.7
+  aws-ecr: circleci/aws-ecr@6.7.1
+  aws-ecs: circleci/aws-ecs@01.1.0
 
-# Invoke jobs via workflows
-# See: https://circleci.com/docs/2.0/configuration-reference/#workflows
 workflows:
-  sample: # This is the name of the workflow, feel free to change it to better match your workflow.
-    # Inside the workflow, you define the jobs you want to run.
+  build-and-deploy:
     jobs:
-      - node/test:
-          # This is the node version to use for the `cimg/node` tag
-          # Relevant tags can be found on the CircleCI Developer Hub
-          # https://circleci.com/developer/images/image/cimg/node
-          version: '16.10'
-          # If you are using yarn, change the line below from "npm" to "yarn"
-          pkg-manager: npm
+      - build:
+          filters:
+            branches:
+              only:
+                - dev
+                - staging
+                - master
+      - deploy:
+          requires:
+            - build
+      - hold:
+          filters:
+            branches:
+              only:
+                - dev
+                - staging
+                - master
+          type: approval
+          requires:
+            - deploy
+      - aws-ecs/deploy-service-update:
+          requires:
+            - hold
+          family: "nimiapp-${CIRCLE_BRANCH}"
+          cluster-name: "nimiapp-${CIRCLE_BRANCH}"
+          container-image-name-updates: "container=app,tag=${CIRCLE_SHA1}"
+          aws-region: "ap-south-1"
+          filters:
+            branches:
+              only:
+                - dev
+
+jobs:
+  build:
+    docker:
+        - image: cimg/node:17.5.0
+    working_directory: ~/nimiapp
+    steps:
+      - checkout
+      - save_cache:
+          name: Save node modules cache
+          paths:
+            - node_modules
+          key: nimiapp-node-modules-{{ checksum "package.json" }}
+      - run:
+          name: Install App Dependencies
+          command: |
+            npm install
+
+  deploy:
+    docker:
+      - image: docker:17.05.0-ce-git
+      - image: circleci/python:3.9
+    working_directory: ~/nimiapp
+    steps:
+      - checkout
+      - setup_remote_docker
+      - restore_cache:
+          name: Restore node modules cache
+          keys:
+            - nimiapp-node-modules-{{ checksum "package.json" }}
+            - nimiapp-node-modules
+      - attach_workspace:
+          name: Attach Dist to Workspace
+          at: ~/
+      - run:
+          name: Installing deployment dependencies
+          command: |
+            pip install awsebcli --upgrade
+            pip install awscli
+      - run:
+          name: Create AWS credentials manually
+          command: |
+            mkdir ~/.aws
+            touch ~/.aws/config
+            chmod 600 ~/.aws/config
+            echo "[profile nail]" > ~/.aws/config
+            echo "aws_access_key_id=$AWS_ACCESS_KEY_ID" >> ~/.aws/config
+            echo "aws_secret_access_key=$AWS_SECRET_ACCESS_KEY" >> ~/.aws/config
+            echo "region=$AWS_REGION" >> ~/.aws/config
