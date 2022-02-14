@@ -58,7 +58,6 @@ jobs:
   deploy:
     docker:
       - image: docker:17.05.0-ce-git
-      - image: cimg/python:3.10.1
     working_directory: ~/nimiapp
     steps:
       - checkout
@@ -72,9 +71,10 @@ jobs:
           name: Attach Dist to Workspace
           at: ~/
       - run:
-          name: Installing deployment dependencies
+          name: Install AWS CLI
           command: |
-            python3 -m pip install awscli
+            apk --no-cache add py-pip
+            pip install awscli
       - run:
           name: Create AWS credentials manually
           command: |
